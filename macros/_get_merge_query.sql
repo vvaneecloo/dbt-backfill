@@ -32,24 +32,48 @@
 {% endmacro %}
 
 
-{% macro _format_query_template(model, event_start, event_end, event_time) %}
-    {% set merge_query_template %}
-        merge with schema evolution into {{ target }}.{{ model }}
-        using (
-            select
-                *
-            from
-                {{ ref(model)}}
-            where
-                {{ event_time }} is between {{ event_start }} and {{ event_end }}
-        )
-        on source.event_time = target.event_time
-        when matched then
-            update set *
-        when not matched then
-            update set *
-        when not matched by source then
-            delete;
-    {% endset %}
+{% macro _format_query_template(model, event_start, event_end, event_time, materialization_type="merge") %}
+    {%- if materialization_type == "merge" -%}
+        {% set merge_query_template %}
+            merge with schema evolution into {{ target }}.{{ model }}
+            using (
+                select
+                    *
+                from
+                    {{ ref(model)}}
+                where
+                    {{ event_time }} is between {{ event_start }} and {{ event_end }}
+            )
+            on source.event_time = target.event_time
+            when matched then
+                update set *
+            when not matched then
+                update set *
+            when not matched by source then
+                delete;
+        {% endset %}
+    {%- endif -%}
+
+    {%- if materialization_type == "insert_overwrite" -%}
+        {# TBD #}
+        {% set merge_query_template %}
+            merge with schema evolution into {{ target }}.{{ model }}
+            using (
+                select
+                    *
+                from
+                    {{ ref(model)}}
+                where
+                    {{ event_time }} is between {{ event_start }} and {{ event_end }}
+            )
+            on source.event_time = target.event_time
+            when matched then
+                update set *
+            when not matched then
+                update set *
+            when not matched by source then
+                delete;
+        {% endset %}
+    {%- endif -%}
     {{ do return(merge_query_template) }}
 {% endmacro %}
