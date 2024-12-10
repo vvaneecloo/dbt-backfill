@@ -1,8 +1,48 @@
-{% macro new_backfill(model=None, start_run=None, end_run=None, batch_size="day", date_column=None) %}
+{% materialization batch_incremental, default %}
+
+    {# config #}
+    {# optional #}
+    {% set incremental_strategy = config.get('incremental_strategy', default="merge") %}
+    {% set batch_size = config.get('incremental_strategy', default="week") %}
+
+    {# required #}
+    {% if incremental_strategy == "merge" %}
+        {% set start_run = config.require('unique_key') %}
+    {% set start_run = config.require('start_run') %}
+    {% set end_run = config.require('end_run') %}
+    {% set date_column = config.require('date_column') %}
+
+    {% set target_relation = this %}
+
+    {{ run_hooks(pre_hooks, inside_transaction=False) }}
+
+    -- begin sql
+    {{ run_hooks(pre_hooks, inside_transaction=True) }}
+
+    
+    {# build sql query #}
+    {% set build_sql %}
+        {{ new_backfill(model=target_relation, start_run=start_run, end_run=end_run, batch_size=batch_size, date_column=date_column, sql) }}
+    {% endset %}
+
+    {% call statement('main') %}
+        {{ build_sql }}
+    {% endcall %}
+
+    {{ return({'relations': [this]}) }}
+
+{% endmaterialization%}
+
+
+
+{% macro new_backfill(model=None, start_run=None, end_run=None, batch_size="day", date_column=None, sql) %}
+    {% if is_backfill == False %}
+        {{ return("") }}
+    {% endif %}
     {{ _log_and_print("[INFO] Running the backfill macro from " ~ start_run ~  " to " ~ end_run ~ " with a batch size of " ~ batch_size ~ ".") }}
 
     {{ _catch_var_edge_cases(model, start_run, end_run, batch_size, date_column) }}
-    {{ run_query(_get_merge_query(model, start_run, end_run, batch_size, date_column)) }}
+    {{ run_query(render(_get_merge_query(model, start_run, end_run, batch_size, date_column, sql))) }}
 {% endmacro %}
 
 
@@ -29,6 +69,6 @@
 {% endmacro %}
 
 {% macro _log_and_print(message) %}
-    {{ log(message) }}
     {{ print(message) }}
+
 {% endmacro %}

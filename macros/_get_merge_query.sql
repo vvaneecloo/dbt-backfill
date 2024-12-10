@@ -1,10 +1,13 @@
-{% macro _get_merge_query(model, start_run, end_run, batch_size, date_column) %}
+{% macro _get_merge_query(model, start_run, end_run, batch_size, date_column, sql) %}
     {% set merge_queries = [] %}
     {% for event_start, event_end in _get_interval_logic(start_run=start_run, end_run=end_run, batch_size=batch_size).items() %}
-        {{ merge_queries.append(_format_query_template(model=model, event_start=event_start, event_end=event_end, date_column=date_column)) }}
+        {{ merge_queries.append(_format_query_template(model=model, event_start=event_start, event_end=event_end, date_column=date_column, sql)) }}
     {% endfor %}
 
+    {{ print("".join(merge_queries)) }}
+
     {{ return("".join(merge_queries)) }}
+
 {% endmacro %}
 
 {% macro _get_interval_logic(start_run, end_run, batch_size) %}
@@ -28,24 +31,20 @@
         {% set tmp_end_run = tmp_start_run - datetime.timedelta(days=step_interval) %}
         {% do events.update({tmp_start_run: tmp_end_run}) %}
     {% endfor %}
-
     {{ return(events) }}
 {% endmacro %}
 
 {% macro _format_query_template(model, event_start, event_end, date_column, materialization_type="merge") %}
+    {{ print(_get_compiled_path(model)) }}
     {%- if materialization_type == "merge" -%}
         {% set clean_code = _get_clean_code(model=model) %}
-        {{ print("clean code" ~ clean_code) }}
         {% set merge_query_template %}
         merge with schema evolution into {{ ref(model) }} as target
                 using (
-                with source as ({{ clean_code }})
                     select
                         *
                     from
-                        source
-                    where
-                        {{ date_column }} between date({{ event_end }}) and date({{ event_start }})
+                        {{ sql }}
                 ) as source
                 on source.created_at = target.created_at
                 when matched then
@@ -59,44 +58,36 @@
     {{ return(merge_query_template) }}
 {% endmacro %}
 
-
 {% macro _get_clean_code(model) %}
-    {{ return(_compile(_clean_raw_code(_get_raw_code(model)))) }}
+    {{ return(_clean_raw_code(_get_node_infos(model).raw_code)) }}
 {% endmacro %}
 
 {% macro _clean_raw_code(raw_code) %}
     {%- set lower_raw_code = raw_code | lower -%}
-    {%- set code_without_config = lower_raw_code.split(")\n}}") -%}
-    {%- set cleaned_code = code_without_config[1].split("{{ row_limit_for_ci() }}") -%}
-    {{ return(cleaned_code[0]) }}
+    {%- set code_without_config = lower_raw_code -%}
+    {% if (code_without_config.split(")\n}}") | length) > 1 %}
+        {{ print(code_without_config.split(")\n}}")) }}
+        {%- set code_without_config = code_without_config.split(")\n}}") -%}
+        {%- set code_without_config = code_without_config[1] -%}
+    {% endif %}
+    {%- set cleaned_code = code_without_config.replace("{{ row_limit_for_ci() }}", "") -%}
+    {{ return(cleaned_code) }}
 {% endmacro %}
 
-{% macro _get_raw_code(model) %}
+{% macro _get_node_infos(model) %}
     {% if execute %}
         {% for node in graph.nodes.values()
          | selectattr("resource_type", "equalto", "model")
          | selectattr("package_name", "equalto", "insight_supply_chain")
          | selectattr("name", "equalto", model) %}
-            {{ return(node.raw_code) }}
+            {{ return({"raw_code": node.raw_code, "refs": node.refs, "materialized": node.config.materialized, "path": node.path }) }}
         {%- endfor -%}
     {% else %}
         {{ exceptions.raise_compiler_error("[ERROR] DBT is not executing, cannot parse graph.") }}
     {% endif %}
 {% endmacro %}
 
-{% macro _compile(raw_code) %}
-    {% set re = modules.re %}
-    {%- set models = re.findall('{{\s*ref\((.*?)\)\s*}}', raw_code) %}
-    {%- set compiled_code = raw_code %}
-
-    {%- for model in models -%}
-        {% set compiled_ref = ref(model) %}
-
-        {# Dynamically build the regex pattern to match `{{ ref('') }}` with the model name #}
-        {% set regex_pattern = '{{\s*ref\((.*?)\)\s*}}' %}
-
-        {# Use re.sub to replace the found `{{ ref() }}` with the compiled reference #}
-        {% set compiled_code = re.sub(regex_pattern, compiled_ref | string, compiled_code) %}
-        {{ print(compiled_code) }}
-    {%- endfor -%}
+{% macro _get_compiled_path(model) %}
+    {% set node_path = _get_node_infos(model).path %}
+    {{ print("target/compiled/insight_supply_chain/models/" ~ node_path) }}
 {% endmacro %}
