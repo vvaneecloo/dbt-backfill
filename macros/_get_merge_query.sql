@@ -1,11 +1,8 @@
-{% macro _get_merge_query(model, start_run, end_run, batch_size, date_column, sql) %}
+{% macro _get_merge_query(start_run, end_run, batch_size, date_column, sql) %}
     {% set merge_queries = [] %}
     {% for event_start, event_end in _get_interval_logic(start_run=start_run, end_run=end_run, batch_size=batch_size).items() %}
-        {{ merge_queries.append(_format_query_template(model=model, event_start=event_start, event_end=event_end, date_column=date_column, sql)) }}
+        {{ merge_queries.append(_format_query_template(event_start=event_start, event_end=event_end, date_column=date_column, sql)) }}
     {% endfor %}
-
-    {{ print("".join(merge_queries)) }}
-
     {{ return("".join(merge_queries)) }}
 
 {% endmacro %}
@@ -34,19 +31,17 @@
     {{ return(events) }}
 {% endmacro %}
 
-{% macro _format_query_template(model, event_start, event_end, date_column, materialization_type="merge") %}
-    {{ print(_get_compiled_path(model)) }}
-    {%- if materialization_type == "merge" -%}
-        {% set clean_code = _get_clean_code(model=model) %}
+{% macro _format_query_template(model, event_start, event_end, date_column, incremental_strategy, sql) %}
+    {%- if incremental_strategy == "merge" -%}
         {% set merge_query_template %}
-        merge with schema evolution into {{ ref(model) }} as target
+        merge with schema evolution into {{ target_relation }} as target
                 using (
                     select
                         *
                     from
                         {{ sql }}
                 ) as source
-                on source.created_at = target.created_at
+                on source.{{ date_column }} = target.{{ date_column }}
                 when matched then
                     update set *
                 when not matched then
@@ -56,38 +51,4 @@
         {% endset %}
     {%- endif -%}
     {{ return(merge_query_template) }}
-{% endmacro %}
-
-{% macro _get_clean_code(model) %}
-    {{ return(_clean_raw_code(_get_node_infos(model).raw_code)) }}
-{% endmacro %}
-
-{% macro _clean_raw_code(raw_code) %}
-    {%- set lower_raw_code = raw_code | lower -%}
-    {%- set code_without_config = lower_raw_code -%}
-    {% if (code_without_config.split(")\n}}") | length) > 1 %}
-        {{ print(code_without_config.split(")\n}}")) }}
-        {%- set code_without_config = code_without_config.split(")\n}}") -%}
-        {%- set code_without_config = code_without_config[1] -%}
-    {% endif %}
-    {%- set cleaned_code = code_without_config.replace("{{ row_limit_for_ci() }}", "") -%}
-    {{ return(cleaned_code) }}
-{% endmacro %}
-
-{% macro _get_node_infos(model) %}
-    {% if execute %}
-        {% for node in graph.nodes.values()
-         | selectattr("resource_type", "equalto", "model")
-         | selectattr("package_name", "equalto", "insight_supply_chain")
-         | selectattr("name", "equalto", model) %}
-            {{ return({"raw_code": node.raw_code, "refs": node.refs, "materialized": node.config.materialized, "path": node.path }) }}
-        {%- endfor -%}
-    {% else %}
-        {{ exceptions.raise_compiler_error("[ERROR] DBT is not executing, cannot parse graph.") }}
-    {% endif %}
-{% endmacro %}
-
-{% macro _get_compiled_path(model) %}
-    {% set node_path = _get_node_infos(model).path %}
-    {{ print("target/compiled/insight_supply_chain/models/" ~ node_path) }}
 {% endmacro %}
