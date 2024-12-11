@@ -1,4 +1,4 @@
-## [ABANDONED] Backfilling your dbt models made easy.
+## [ABANDONED] dbt-incremental-batch: backfilling & working with your dbt models made easy.
 
 This was done before the release 1.9.0 of dbt. 
 
