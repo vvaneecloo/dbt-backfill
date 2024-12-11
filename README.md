@@ -1,6 +1,8 @@
-Backfilling your dbt models made easy.
+[ABANDONED] Backfilling your dbt models made easy.
 
-This was done before the release 1.9.0 of dbt. This project is abandoned since, but could be a great ressource for someone only working with materializations / macros, thus I am letting it stay public.
+This was done before the release 1.9.0 of dbt. 
+
+This project is abandoned since, but could be a great ressource for someone only working with materializations / macros, thus I am letting it stay public.
 
 ### The idea
 
